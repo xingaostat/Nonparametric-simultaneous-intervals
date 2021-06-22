@@ -1,4 +1,7 @@
-# Nonparametric-simultaneous-intervalsThe "larplateJune162021_github.txt" contains the R code to implement the MMB and MB methods. 
+
+
+
+Nonparametric-simultaneous-intervalsThe "larplateJune162021_github.txt" contains the R code to implement the MMB and MB methods. 
 
 The MMB and MB methods are percentile based methods to generate nonparametric simultaneous confidence intervals.
 
