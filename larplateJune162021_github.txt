@@ -1,0 +1,295 @@
+
+starttime<-date()
+library(MASS)
+library(VGAM)
+library(lars)
+library(mvtnorm)
+
+### function GKB is the proposed new MMB method ####
+###fuction MB is the exisitng MB method####
+GKB<-function(bootsam,B,alpha){
+p<-dim(bootsam)[2]
+ranksam<-apply(bootsam,2,rank)
+
+#upsam<-apply(ranksam,1,max)
+#upsam<-apply(ranksam,1,max2)
+upsam<-apply(ranksam,1,max)
+
+upsam<-upsam+runif(B,-0.1,0.1)
+
+rankup<-rank(upsam)
+
+cut<-1-alpha/2
+
+cutnum<-ceiling(B*(1-alpha/2))
+
+
+
+below1<-(rankup<=cutnum)
+below1<-below1==1
+
+subsetA<-ranksam[below1,]
+
+lowsam<-apply(subsetA,1,min)
+lowsam<-lowsam+runif(length(lowsam),-0.1,0.1)
+rankdown<-rank(lowsam)
+
+cutnum1<-ceiling(length(lowsam)*(alpha)/(2-alpha))
+
+below2<-(rankdown>=cutnum1)
+below2<-below2==1
+
+subsetB<-ranksam[below1,][below2,]
+
+top<-apply(subsetB,2,max)
+
+topnum<-numeric(p)
+for(j in 1:p){
+vec<-bootsam[,j]
+topnum[j]<-vec[order(vec)[top[j]]]
+}
+
+bottom<-apply(subsetB,2,min)
+
+botnum<-numeric(p)
+for(j in 1:p){
+vec<-bootsam[,j]
+botnum[j]<-vec[order(vec)[bottom[j]]]
+}
+
+return(cbind(topnum,botnum))
+}
+
+MB<-function(bootsam,B,alpha){
+p<-dim(bootsam)[2]
+
+ranksam<-apply(bootsam,2,rank)
+
+#upsam<-apply(ranksam,1,max)
+#upsam<-apply(ranksam,1,max2)
+
+upsam<-apply(ranksam,1,max)
+
+upsam1<-upsam+runif(B,-0.1,0.1)
+
+
+cutnum<-ceiling(B*(1-alpha/2))
+
+l2<-order(upsam)[cutnum]
+rb<-upsam[l2]
+
+topnum<-numeric(p)
+for(j in 1:p){
+vec<-bootsam[,j]
+topnum[j]<-sort(vec)[rb]
+}
+
+
+theta<-(-bootsam)
+
+ranksam<-apply(theta,2,rank)
+
+#upsam<-apply(ranksam,1,max)
+#upsam<-apply(ranksam,1,max2)
+
+upsam<-apply(ranksam,1,max)
+
+
+
+
+cutnum<-ceiling(B*(1-alpha/2))
+
+l2<-order(upsam)[cutnum]
+rb<-upsam[l2]
+
+botnum<-numeric(p)
+for(j in 1:p){
+vec<-theta[,j]
+botnum[j]<--(sort(vec)[rb])
+}
+
+return(cbind(topnum,botnum))
+}
+
+#####next develop the function for MB interval#####
+old<-Sys.time()
+set.seed(1)
+n=200
+p=30
+sim=1000
+Bnumer=10000
+#sim<-1000
+#sim<-300
+#n<-100
+#n<-1000
+#n<-200
+alpha<-0.05
+#p=3
+#p<-15
+#p=30
+#p<-30
+#Bnumer<-10000
+
+
+#answer<-array(dim=c(sim,8))
+answer<-array(dim=c(sim,10))
+zcritical<-qnorm((1-0.05/(2*p)),0,1)
+for (s in 1:sim){
+
+
+
+
+x<-array(dim=c(n,p))
+
+for (i in 1:n){
+  x[i,]<-rnorm(p,0,1)
+}
+
+#beta<-c(1,2,3)
+beta<-c(0.1,0.2,0.4,0.1,0.4,0.2,0.3,0.4,0.5,0.3,rep(0,(p-10)))
+y<-numeric(n)
+#y<-x%*%beta+rnorm(n,0,1)
+y<-x%*%beta+exp(rnorm(n,0,1))
+#y<-x%*%beta+rcauchy(n,0,1)+sample(c(20,30,rep(0,(n-2))),replace=FALSE)
+obs<-lm(y~x-1)$coefficients
+###next we perform bootstrap to obtain bootstrap confi and boostrap smooth
+
+
+bootno<-array(dim=c(Bnumer,p))
+
+for (b in 1:Bnumer){
+#print(b)
+bootind<-sample(1:n,replace=TRUE)
+
+bootx<-x[bootind,]
+booty<-y[bootind]
+
+
+
+
+bootno[b,]<-lm(booty~bootx-1,)$coefficients
+}
+
+res<-GKB(bootno,Bnumer,alpha)
+
+resMB<-MB(bootno,Bnumer,alpha)
+nosigma<-array(dim=c(p,p))
+
+nosigma<-cov(bootno)
+
+
+std<-sqrt(diag(nosigma))  
+
+
+
+dmat<-diag(1/std)
+cormat<-dmat%*%nosigma%*%dmat
+qnum<-qmvnorm(0.95,cor=cormat,tail="both.tails")
+#qnum<-2
+nontop1<-obs+std*qnum[[1]]
+nonbot1<-obs-std*qnum[[1]]
+
+###bonferroni method###
+bontop1<-obs+std*zcritical
+
+bonbot1<-obs-std*zcritical
+
+sucbon<-sum((beta<=bontop1)*(beta>=bonbot1))
+lenbon<-sqrt(sum((bontop1-bonbot1)^2))/p
+
+
+
+mbtop<-res[,1]
+mbbot<-res[,2]
+suc00<-sum((beta<=mbtop)*(beta>=mbbot))
+len00<-sqrt(sum((mbtop-mbbot)^2))/p
+
+mbtopMB<-resMB[,1]
+mbbotMB<-resMB[,2]
+suc0<-sum((beta<=mbtopMB)*(beta>=mbbotMB))
+len0<-sqrt(sum((mbtopMB-mbbotMB)^2))/p
+
+suct<-sum((beta<=nontop1)*(beta>=nonbot1))
+#suct<-1
+lent<-sqrt(sum((nontop1-nonbot1)^2))/p
+#lent<-1
+
+
+
+answer[s,]<-c(n,p,suc00,suc0,len00,len0,suct,lent,sucbon,lenbon)
+print(s)
+}
+timeused<-Sys.time()-old
+
+#write.table(answ1 ,file="e://users/xin/frank/larres.txt",append=T,row.names=FALSE,col.names=FALSE,sep=" ",eol = "\n")
+
+#q("yes")
+
+
+
+
+
+
+
+
+
+####sim=1000 B=10k final result reported in the table 1 of the manuscript revision June 16, 2021
+
+resall<-c(mean(answer[,3]!=p),mean(answer[,4]!=p),mean(answer[,7]!=p),mean(answer[,9]!=p), mean(answer[,5]),mean(answer[,6]),mean(answer[,8]),mean(answer[,10]))
+
+ n=200 p=3 normal ##the resall contains the result of simulation
+[1] 0.0510000 0.0510000 0.0500000 0.0500000 0.1964357 0.1968862 0.1959856
+[8] 0.1966591
+
+n=200 p=3 lognormal
+1] 0.0750000 0.0740000 0.0530000 0.0500000 0.5188653 0.5211814 0.5171054
+[8] 0.5208485
+
+n=200 p=15 lognormal
+[1] 0.0660000 0.0620000 0.0340000 0.0300000 0.2973750 0.3000243 0.2958293
+[8] 0.2988085
+
+n=200 p=15 normal
+
+[1] 0.0590000 0.0560000 0.0590000 0.0570000 0.1121833 0.1127651 0.1117090
+[8] 0.1121826
+
+n=200 p=30 normal
+
+> resall
+[1] 0.05600000 0.05500000 0.06200000 0.05800000 0.09151730 0.09252349 0.09081747
+[8] 0.09119760
+
+n=200 p=30 lognormal
+
+[1] 0.0430000 0.0400000 0.0180000 0.0180000 0.2432005 0.2466798 0.2415028
+[8] 0.2437569
+
+
+x1<-c(0.0510000, 0.0510000, 0.0500000, 0.0500000, 0.1964357, 0.1968862, 0.1959856,
+0.1966591)
+x2<-c(0.0750000, 0.0740000, 0.0530000, 0.0500000, 0.5188653, 0.5211814, 0.5171054, 0.5208485)
+x3<-c(0.0590000, 0.0560000, 0.0590000, 0.0570000, 0.1121833, 0.1127651, 0.1117090, 0.1121826)
+x4<-c( 0.0660000, 0.0620000, 0.0340000, 0.0300000, 0.2973750, 0.3000243, 0.2958293, 0.2988085)
+x5<-c(0.05600000, 0.05500000, 0.06200000, 0.05800000, 0.09151730, 0.09252349, 0.09081747,0.09119760)
+x6<-c(0.0430000, 0.0400000, 0.0180000, 0.0180000, 0.2432005, 0.2466798, 0.2415028,0.2437569)
+
+rerenew<-rbind(x1,x2,x3,x4,x5,x6)
+
+pma<-c(3,3,15,15,30,30)
+  
+
+
+for (i in 1:6){
+cat(sprintf(" %.4f & %.4f & %.4f & %.4f %.4f & %.4f & %.4f & %.4f \\\\ \n",(1-rerenew[i,1]),rerenew[i,5]*pma[i],(1-rerenew[i,2]),rerenew[i,6]*pma[i],(1-rerenew[i,3]),rerenew[i,7]*pma[i],(1-rerenew[i,4]),rerenew[i,8]*pma[i]))
+}
+
+ 0.9490 & 0.5893 & 0.9490 & 0.5907 0.9500 & 0.5880 & 0.9500 & 0.5900 \\ 
+ 0.9250 & 1.5566 & 0.9260 & 1.5635 0.9470 & 1.5513 & 0.9500 & 1.5625 \\ 
+ 0.9410 & 1.6827 & 0.9440 & 1.6915 0.9410 & 1.6756 & 0.9430 & 1.6827 \\ 
+ 0.9340 & 4.4606 & 0.9380 & 4.5004 0.9660 & 4.4374 & 0.9700 & 4.4821 \\ 
+ 0.9440 & 2.7455 & 0.9450 & 2.7757 0.9380 & 2.7245 & 0.9420 & 2.7359 \\ 
+ 0.9570 & 7.2960 & 0.9600 & 7.4004 0.9820 & 7.2451 & 0.9820 & 7.3127 \\ 
+
+####The result above is included in Table 1 of the paper####
+ 
